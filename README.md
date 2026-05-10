@@ -9,7 +9,9 @@ This repository contains the implementation and deliverables for a Webots activi
 - `city_2023b.wbt`
   Webots world derived from the stock `city.wbt` sample.
 - `run_webots_controller.sh`
-  Helper script to run the controller with the expected Webots Python environment.
+  macOS/Linux helper script to run the controller with the expected Webots Python environment.
+- `run_webots_controller.cmd`
+  Windows helper script to run the controller with the expected Webots Python environment.
 - `requirements_webots.txt`
   Minimal Python dependencies.
 - `Actividad_2_1_Entrega.md`
@@ -45,7 +47,15 @@ It also includes:
   - raw camera image
   - processed detection preview
 
-## Running
+## Running on macOS
+
+Install dependencies in a local environment if needed:
+
+```bash
+python3 -m venv .venv-webots
+source .venv-webots/bin/activate
+pip install -r requirements_webots.txt
+```
 
 Open `city_2023b.wbt` in Webots and then run:
 
@@ -53,7 +63,40 @@ Open `city_2023b.wbt` in Webots and then run:
 ./run_webots_controller.sh
 ```
 
+The script auto-detects `WEBOTS_HOME` from common macOS install locations. You can also override:
+
+```bash
+export WEBOTS_HOME="/Applications/Webots.app"
+export WEBOTS_PYTHON_EXECUTABLE="$PWD/.venv-webots/bin/python"
+./run_webots_controller.sh
+```
+
+## Running on Windows
+
+Create a virtual environment and install dependencies:
+
+```bat
+py -3 -m venv .venv-webots
+.venv-webots\Scripts\activate
+pip install -r requirements_webots.txt
+```
+
+Then open `city_2023b.wbt` in Webots and run:
+
+```bat
+run_webots_controller.cmd
+```
+
+The Windows launcher checks common Webots install paths such as `C:\Program Files\Webots`. If your installation is elsewhere, define `WEBOTS_HOME` manually:
+
+```bat
+set WEBOTS_HOME=C:\Program Files\Webots
+set WEBOTS_PYTHON_EXECUTABLE=%CD%\.venv-webots\Scripts\python.exe
+run_webots_controller.cmd
+```
+
 ## Notes
 
 - The public repository includes the working code and current deliverables.
 - Video recording and YouTube publication are not bundled in this repository.
+- The main controller code is OS-agnostic; the launcher scripts are what differ between macOS and Windows.
