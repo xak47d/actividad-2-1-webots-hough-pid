@@ -74,6 +74,7 @@ STEERING_HOLD_DECAY = 0.985
 ERROR_SMOOTHING_ALPHA = 0.30
 STABLE_ERROR_THRESHOLD_PX = 6.0
 VALIDATION_REPORT_PATH = Path(__file__).with_name("Actividad_2_1_Validacion_Latest.md")
+ARTIFACTS_DIR = Path(__file__).with_name("validation_artifacts")
 
 # Parametros base de la deteccion de lineas.
 CANNY_LOW_THRESHOLD = 50
@@ -134,6 +135,13 @@ def bgr_to_display_bytes(image_bgr: np.ndarray) -> bytes:
     return image_bgra.tobytes()
 
 
+def scale_to_display(image_bgr: np.ndarray, disp_w: int, disp_h: int) -> np.ndarray:
+    """Escala la imagen al tamaño exacto del Display para que no queden bordes negros."""
+    if image_bgr.shape[1] == disp_w and image_bgr.shape[0] == disp_h:
+        return image_bgr
+    return cv2.resize(image_bgr, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+
+
 def build_roi_polygon(width: int, height: int) -> np.ndarray:
     """Construye la ROI trapezoidal pedida en la actividad.
 
@@ -159,6 +167,11 @@ class DetectionResult:
     """Contiene las salidas intermedias y finales del pipeline de vision."""
 
     processed_bgr: np.ndarray
+    gray: np.ndarray
+    edges: np.ndarray
+    roi_mask: np.ndarray
+    masked_edges: np.ndarray
+    roi_polygon: np.ndarray
     detected_segments: list[tuple[int, int, int, int]]
     usable_segments: list[tuple[int, int, int, int]]
     rejected_horizontal_segments: int
@@ -286,6 +299,57 @@ def write_validation_summary(stats: ValidationStats) -> None:
     VALIDATION_REPORT_PATH.write_text(build_validation_summary(stats), encoding="utf-8")
 
 
+def export_pipeline_artifacts(
+    frame_bgr: np.ndarray,
+    detection: DetectionResult,
+    frame_index: int,
+) -> None:
+    """Guarda artefactos visuales para validar cada etapa del pipeline.
+
+    Esto permite documentar en un notebook que la actividad cumple con:
+    captura de camara, gris, Canny, ROI con fillPoly y HoughLinesP.
+    """
+    ARTIFACTS_DIR.mkdir(exist_ok=True)
+
+    raw_path = ARTIFACTS_DIR / "01_raw_camera.png"
+    gray_path = ARTIFACTS_DIR / "02_grayscale.png"
+    edges_path = ARTIFACTS_DIR / "03_canny_edges.png"
+    roi_mask_path = ARTIFACTS_DIR / "04_roi_mask.png"
+    roi_edges_path = ARTIFACTS_DIR / "05_roi_applied.png"
+    hough_path = ARTIFACTS_DIR / "06_hough_lines.png"
+    meta_path = ARTIFACTS_DIR / "artifact_metadata.md"
+
+    cv2.imwrite(str(raw_path), frame_bgr)
+    cv2.imwrite(str(gray_path), detection.gray)
+    cv2.imwrite(str(edges_path), detection.edges)
+    cv2.imwrite(str(roi_mask_path), detection.roi_mask)
+    cv2.imwrite(str(roi_edges_path), detection.masked_edges)
+    cv2.imwrite(str(hough_path), detection.processed_bgr)
+
+    metadata_lines = [
+        "# Artefactos de validacion del pipeline",
+        "",
+        f"- Frame exportado: {frame_index}",
+        f"- Resolucion: {frame_bgr.shape[1]}x{frame_bgr.shape[0]}",
+        f"- Hough total: {len(detection.detected_segments)}",
+        f"- Lineas utiles: {len(detection.usable_segments)}",
+        f"- Lineas horizontales filtradas: {detection.rejected_horizontal_segments}",
+        f"- Fuente de guia: {detection.guidance_source}",
+        f"- Error seleccionado: {detection.chosen_error:.2f} px",
+        f"- ROI: {detection.roi_polygon.tolist()}",
+        "",
+        "## Archivos",
+        "",
+        "- `01_raw_camera.png`: imagen capturada por la camara a bordo",
+        "- `02_grayscale.png`: conversion a escala de grises",
+        "- `03_canny_edges.png`: bordes detectados con Canny",
+        "- `04_roi_mask.png`: mascara creada con fillPoly",
+        "- `05_roi_applied.png`: bordes luego de aplicar la ROI",
+        "- `06_hough_lines.png`: lineas rectas detectadas por Hough sobre la imagen procesada",
+    ]
+    meta_path.write_text("\n".join(metadata_lines) + "\n", encoding="utf-8")
+
+
 def estimate_yellow_guidance_error(frame_bgr: np.ndarray, setpoint: float) -> tuple[float | None, int]:
     """Obtiene una referencia auxiliar con el centroide de pixeles amarillos.
 
@@ -402,21 +466,23 @@ def detect_lane_lines(frame_bgr: np.ndarray) -> DetectionResult:
         yellow_x = int(clamp(setpoint + yellow_hint_error, 0, width - 1))
         cv2.circle(processed_bgr, (yellow_x, int(height * 0.82)), 5, (0, 255, 255), -1)
 
+    # Texto compacto: escala 0.30 y espaciado de 10 px permiten que las 6 lineas
+    # quepan dentro de los 64 px de alto de la camara (y max = 9 + 5*10 = 59 px).
     overlay_lines = [
         f"Hough total: {len(detected_segments)}",
-        f"Lineas utiles: {len(usable_segments)}",
-        f"Filtradas horizontales: {rejected_horizontal_segments}",
-        f"Pixeles amarillos: {yellow_pixels}",
-        f"Fuente guia: {guidance_source}",
-        f"Error seleccionado: {chosen_error:.2f}px",
+        f"Utiles: {len(usable_segments)}",
+        f"Filtradas: {rejected_horizontal_segments}",
+        f"Px amarillos: {yellow_pixels}",
+        f"Fuente: {guidance_source}",
+        f"Error: {chosen_error:.2f}px",
     ]
     for index, text in enumerate(overlay_lines):
         cv2.putText(
             processed_bgr,
             text,
-            (10, 24 + index * 22),
+            (4, 9 + index * 10),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
+            0.30,
             (255, 255, 255),
             1,
             cv2.LINE_AA,
@@ -427,6 +493,11 @@ def detect_lane_lines(frame_bgr: np.ndarray) -> DetectionResult:
 
     return DetectionResult(
         processed_bgr=processed_bgr,
+        gray=gray,
+        edges=edges,
+        roi_mask=mask,
+        masked_edges=masked_edges,
+        roi_polygon=roi_polygon,
         detected_segments=detected_segments,
         usable_segments=usable_segments,
         rejected_horizontal_segments=rejected_horizontal_segments,
@@ -491,6 +562,12 @@ def main() -> None:
     raw_display = try_get_device(driver, RAW_DISPLAY_CANDIDATES)
     processed_display = try_get_device(driver, PROCESSED_DISPLAY_CANDIDATES)
 
+    # Dimensiones reales de cada display para escalar las imagenes exactamente.
+    raw_disp_w = raw_display.getWidth() if raw_display else width
+    raw_disp_h = raw_display.getHeight() if raw_display else height
+    proc_disp_w = processed_display.getWidth() if processed_display else width
+    proc_disp_h = processed_display.getHeight() if processed_display else height
+
     # Ganancias iniciales sugeridas en el plan. La idea es arrancar conservador
     # y afinar primero Kp, luego Kd y al final un Ki pequeno.
     pid = PIDController(kp=0.012, ki=0.0001, kd=0.006)
@@ -514,6 +591,7 @@ def main() -> None:
     last_guided_steering = 0.0
     frames_since_guidance = GUIDANCE_MEMORY_FRAMES + 1
     validation_stats = ValidationStats()
+    artifacts_exported = False
     while driver.step() != -1:
         camera_image = camera.getImage()
         frame_bgr = camera_bgra_to_bgr(camera_image, width, height)
@@ -559,29 +637,29 @@ def main() -> None:
 
         validation_stats.observe(step_counter, detection, applied_source, control_error)
 
+        if not artifacts_exported and (len(detection.usable_segments) > 0 or detection.guidance_source != "none"):
+            export_pipeline_artifacts(frame_bgr, detection, step_counter)
+            artifacts_exported = True
+
         driver.setCruisingSpeed(TARGET_SPEED_KMH)
         driver.setSteeringAngle(steering_angle)
 
         # Si existen dos displays, el primero muestra la imagen cruda y el
         # segundo la imagen procesada. Si solo existe uno, se prioriza la
         # imagen procesada porque es la evidencia mas util para la actividad.
+        # Las imagenes se escalan al tamano exacto del display para que no
+        # queden bordes negros ni contenido recortado.
         if raw_display is not None and processed_display is not None:
-            paste_image_to_display(raw_display, camera_image, width, height)
-            paste_image_to_display(
-                processed_display,
-                bgr_to_display_bytes(detection.processed_bgr),
-                width,
-                height,
-            )
+            raw_scaled = scale_to_display(frame_bgr, raw_disp_w, raw_disp_h)
+            paste_image_to_display(raw_display, bgr_to_display_bytes(raw_scaled), raw_disp_w, raw_disp_h)
+            proc_scaled = scale_to_display(detection.processed_bgr, proc_disp_w, proc_disp_h)
+            paste_image_to_display(processed_display, bgr_to_display_bytes(proc_scaled), proc_disp_w, proc_disp_h)
         elif processed_display is not None:
-            paste_image_to_display(
-                processed_display,
-                bgr_to_display_bytes(detection.processed_bgr),
-                width,
-                height,
-            )
+            proc_scaled = scale_to_display(detection.processed_bgr, proc_disp_w, proc_disp_h)
+            paste_image_to_display(processed_display, bgr_to_display_bytes(proc_scaled), proc_disp_w, proc_disp_h)
         elif raw_display is not None:
-            paste_image_to_display(raw_display, camera_image, width, height)
+            raw_scaled = scale_to_display(frame_bgr, raw_disp_w, raw_disp_h)
+            paste_image_to_display(raw_display, bgr_to_display_bytes(raw_scaled), raw_disp_w, raw_disp_h)
 
         if step_counter % DEBUG_EVERY_N_STEPS == 0:
             print(
