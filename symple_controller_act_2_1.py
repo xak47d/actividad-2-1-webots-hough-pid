@@ -135,11 +135,20 @@ def bgr_to_display_bytes(image_bgr: np.ndarray) -> bytes:
     return image_bgra.tobytes()
 
 
-def scale_to_display(image_bgr: np.ndarray, disp_w: int, disp_h: int) -> np.ndarray:
-    """Escala la imagen al tamaño exacto del Display para que no queden bordes negros."""
-    if image_bgr.shape[1] == disp_w and image_bgr.shape[0] == disp_h:
+# Tamaño fijo de los displays declarado en city_2023b.wbt.
+# Debe coincidir con width/height de los nodos Display del mundo.
+DISPLAY_WIDTH  = 256
+DISPLAY_HEIGHT = 128
+
+
+def scale_to_display(image_bgr: np.ndarray) -> np.ndarray:
+    """Escala la imagen al tamaño exacto de los displays (256x128) sin bordes negros.
+
+    Se usa INTER_LINEAR para que el escalado 2x de la camara 128x64 sea nitido.
+    """
+    if image_bgr.shape[1] == DISPLAY_WIDTH and image_bgr.shape[0] == DISPLAY_HEIGHT:
         return image_bgr
-    return cv2.resize(image_bgr, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+    return cv2.resize(image_bgr, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_LINEAR)
 
 
 def build_roi_polygon(width: int, height: int) -> np.ndarray:
@@ -562,12 +571,6 @@ def main() -> None:
     raw_display = try_get_device(driver, RAW_DISPLAY_CANDIDATES)
     processed_display = try_get_device(driver, PROCESSED_DISPLAY_CANDIDATES)
 
-    # Dimensiones reales de cada display para escalar las imagenes exactamente.
-    raw_disp_w = raw_display.getWidth() if raw_display else width
-    raw_disp_h = raw_display.getHeight() if raw_display else height
-    proc_disp_w = processed_display.getWidth() if processed_display else width
-    proc_disp_h = processed_display.getHeight() if processed_display else height
-
     # Ganancias iniciales sugeridas en el plan. La idea es arrancar conservador
     # y afinar primero Kp, luego Kd y al final un Ki pequeno.
     pid = PIDController(kp=0.012, ki=0.0001, kd=0.006)
@@ -644,22 +647,31 @@ def main() -> None:
         driver.setCruisingSpeed(TARGET_SPEED_KMH)
         driver.setSteeringAngle(steering_angle)
 
-        # Si existen dos displays, el primero muestra la imagen cruda y el
-        # segundo la imagen procesada. Si solo existe uno, se prioriza la
-        # imagen procesada porque es la evidencia mas util para la actividad.
-        # Las imagenes se escalan al tamano exacto del display para que no
-        # queden bordes negros ni contenido recortado.
+        # Escala ambas imagenes a DISPLAY_WIDTH x DISPLAY_HEIGHT antes de pegar
+        # para que llenen el display completo sin bordes negros.
         if raw_display is not None and processed_display is not None:
-            raw_scaled = scale_to_display(frame_bgr, raw_disp_w, raw_disp_h)
-            paste_image_to_display(raw_display, bgr_to_display_bytes(raw_scaled), raw_disp_w, raw_disp_h)
-            proc_scaled = scale_to_display(detection.processed_bgr, proc_disp_w, proc_disp_h)
-            paste_image_to_display(processed_display, bgr_to_display_bytes(proc_scaled), proc_disp_w, proc_disp_h)
+            paste_image_to_display(
+                raw_display,
+                bgr_to_display_bytes(scale_to_display(frame_bgr)),
+                DISPLAY_WIDTH, DISPLAY_HEIGHT,
+            )
+            paste_image_to_display(
+                processed_display,
+                bgr_to_display_bytes(scale_to_display(detection.processed_bgr)),
+                DISPLAY_WIDTH, DISPLAY_HEIGHT,
+            )
         elif processed_display is not None:
-            proc_scaled = scale_to_display(detection.processed_bgr, proc_disp_w, proc_disp_h)
-            paste_image_to_display(processed_display, bgr_to_display_bytes(proc_scaled), proc_disp_w, proc_disp_h)
+            paste_image_to_display(
+                processed_display,
+                bgr_to_display_bytes(scale_to_display(detection.processed_bgr)),
+                DISPLAY_WIDTH, DISPLAY_HEIGHT,
+            )
         elif raw_display is not None:
-            raw_scaled = scale_to_display(frame_bgr, raw_disp_w, raw_disp_h)
-            paste_image_to_display(raw_display, bgr_to_display_bytes(raw_scaled), raw_disp_w, raw_disp_h)
+            paste_image_to_display(
+                raw_display,
+                bgr_to_display_bytes(scale_to_display(frame_bgr)),
+                DISPLAY_WIDTH, DISPLAY_HEIGHT,
+            )
 
         if step_counter % DEBUG_EVERY_N_STEPS == 0:
             print(

@@ -640,13 +640,13 @@ BmwX5 {
     }
     Display {
       name "display_raw"
-      width 200
-      height 150
+      width 256
+      height 128
     }
     Display {
       name "display"
-      width 200
-      height 150
+      width 256
+      height 128
     }
   ]
 }
