@@ -2,17 +2,17 @@
 
 ## Resumen
 
-- Cuadros procesados: 81901
-- Cuadros con al menos una linea Hough detectada: 81855 (99.9%)
-- Cuadros con lineas utiles despues del filtro: 81729 (99.8%)
-- Cuadros guiados directamente por Hough: 81729 (99.8%)
-- Cuadros que usaron retencion temporal ('steering_hold'): 161 (0.2%)
-- Cuadros con error estable (+/-6 px) usando Hough: 2654 (3.2%)
-- Cuadros con pixeles amarillos visibles: 2480 (3.0%)
+- Cuadros procesados: 1401
+- Cuadros con al menos una linea Hough detectada: 1368 (97.6%)
+- Cuadros con lineas utiles despues del filtro: 1332 (95.1%)
+- Cuadros guiados directamente por Hough: 1332 (95.1%)
+- Cuadros que usaron retencion temporal ('steering_hold'): 59 (4.2%)
+- Cuadros con error estable (+/-6 px) usando Hough: 1093 (78.0%)
+- Cuadros con pixeles amarillos visibles: 1219 (87.0%)
 - Primer cuadro con guia Hough: frame 0
-- Racha mas larga de cuadros guiados por Hough: 78650
-- Maximo de lineas Hough detectadas en un cuadro: 19
-- Maximo de lineas utiles en un cuadro: 16
+- Racha mas larga de cuadros guiados por Hough: 1116
+- Maximo de lineas Hough detectadas en un cuadro: 10
+- Maximo de lineas utiles en un cuadro: 7
 
 ## Interpretacion
 
