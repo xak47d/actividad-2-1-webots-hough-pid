@@ -645,7 +645,7 @@ BmwX5 {
     }
     Display {
       name "display"
-      width 256
+      width 384
       height 128
     }
   ]

@@ -135,20 +135,36 @@ def bgr_to_display_bytes(image_bgr: np.ndarray) -> bytes:
     return image_bgra.tobytes()
 
 
-# Tamaño fijo de los displays declarado en city_2023b.wbt.
-# Debe coincidir con width/height de los nodos Display del mundo.
-DISPLAY_WIDTH  = 256
-DISPLAY_HEIGHT = 128
+# Tamaños fijos de los displays declarados en city_2023b.wbt.
+# RAW: escala 2x la camara (128x64 → 256x128).
+# MOSAIC: mosaico 3×2 a resolución nativa de la camara (3×128 × 2×64 = 384×128).
+DISPLAY_RAW_W    = 256
+DISPLAY_RAW_H    = 128
+DISPLAY_MOSAIC_W = 384   # 3 columnas × 128 px
+DISPLAY_MOSAIC_H = 128   # 2 filas   ×  64 px
 
 
 def scale_to_display(image_bgr: np.ndarray) -> np.ndarray:
-    """Escala la imagen al tamaño exacto de los displays (256x128) sin bordes negros.
-
-    Se usa INTER_LINEAR para que el escalado 2x de la camara 128x64 sea nitido.
-    """
-    if image_bgr.shape[1] == DISPLAY_WIDTH and image_bgr.shape[0] == DISPLAY_HEIGHT:
+    """Escala la imagen cruda al tamaño del display RAW (256×128)."""
+    if image_bgr.shape[1] == DISPLAY_RAW_W and image_bgr.shape[0] == DISPLAY_RAW_H:
         return image_bgr
-    return cv2.resize(image_bgr, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_LINEAR)
+    return cv2.resize(image_bgr, (DISPLAY_RAW_W, DISPLAY_RAW_H), interpolation=cv2.INTER_LINEAR)
+
+
+def build_pipeline_mosaic(frame_bgr: np.ndarray, detection: DetectionResult) -> np.ndarray:
+    """Construye un mosaico 3×2 con las 6 etapas del pipeline a resolucion nativa.
+
+    Disposicion:
+      Fila 1: [imagen cruda] [escala de grises] [bordes Canny]
+      Fila 2: [mascara ROI ] [bordes en ROI   ] [resultado Hough]
+    """
+    gray_bgr  = cv2.cvtColor(detection.gray,         cv2.COLOR_GRAY2BGR)
+    edges_bgr = cv2.cvtColor(detection.edges,        cv2.COLOR_GRAY2BGR)
+    mask_bgr  = cv2.cvtColor(detection.roi_mask,     cv2.COLOR_GRAY2BGR)
+    roi_bgr   = cv2.cvtColor(detection.masked_edges, cv2.COLOR_GRAY2BGR)
+    row1 = np.hstack([frame_bgr,  gray_bgr,  edges_bgr])
+    row2 = np.hstack([mask_bgr,   roi_bgr,   detection.processed_bgr])
+    return np.vstack([row1, row2])
 
 
 def build_roi_polygon(width: int, height: int) -> np.ndarray:
@@ -647,30 +663,20 @@ def main() -> None:
         driver.setCruisingSpeed(TARGET_SPEED_KMH)
         driver.setSteeringAngle(steering_angle)
 
-        # Escala ambas imagenes a DISPLAY_WIDTH x DISPLAY_HEIGHT antes de pegar
-        # para que llenen el display completo sin bordes negros.
-        if raw_display is not None and processed_display is not None:
+        # Display RAW: imagen cruda escalada 2x (256x128).
+        # Display MOSAIC: mosaico 3x2 con las 6 etapas del pipeline (384x128).
+        if raw_display is not None:
             paste_image_to_display(
                 raw_display,
                 bgr_to_display_bytes(scale_to_display(frame_bgr)),
-                DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                DISPLAY_RAW_W, DISPLAY_RAW_H,
             )
+        if processed_display is not None:
+            mosaic = build_pipeline_mosaic(frame_bgr, detection)
             paste_image_to_display(
                 processed_display,
-                bgr_to_display_bytes(scale_to_display(detection.processed_bgr)),
-                DISPLAY_WIDTH, DISPLAY_HEIGHT,
-            )
-        elif processed_display is not None:
-            paste_image_to_display(
-                processed_display,
-                bgr_to_display_bytes(scale_to_display(detection.processed_bgr)),
-                DISPLAY_WIDTH, DISPLAY_HEIGHT,
-            )
-        elif raw_display is not None:
-            paste_image_to_display(
-                raw_display,
-                bgr_to_display_bytes(scale_to_display(frame_bgr)),
-                DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                bgr_to_display_bytes(mosaic),
+                DISPLAY_MOSAIC_W, DISPLAY_MOSAIC_H,
             )
 
         if step_counter % DEBUG_EVERY_N_STEPS == 0:
